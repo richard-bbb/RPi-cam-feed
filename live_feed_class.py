@@ -1,9 +1,11 @@
 import time
-import numpy as np
 from threading import Thread
+import numpy as np
 import cv2 as cv
 import v4l2
 import arducam_mipicamera as arducam
+
+test = 1
 
 
 class CameraFeed():
@@ -20,8 +22,9 @@ class CameraFeed():
             self.height = int(align_up(self.fmt[1], 16) * 1.5)
             self.width = int(align_up(self.fmt[0], 32))
         self.frame = None
+        self.count = 0
         self.grabbed = False
-        self.stopped = False
+        self.running = True
 
     def set_controls(self, exposure='auto', gain=255):
         self.camera.set_control(v4l2.V4L2_CID_VFLIP, 1)
@@ -33,32 +36,33 @@ class CameraFeed():
         else:
             self.camera.set_control(v4l2.V4L2_CID_EXPOSURE, exposure)
 
-    def start_threads(self):
-        thread_get = Thread(target=self.get_frame, args=())
+    def start_thread(self):
         thread_open = Thread(target=self.open_frame, args=())
-        thread_get.setDaemon(True)
         thread_open.setDaemon(True)
-        thread_get.start()
         thread_open.start()
-        return self
 
     def get_frame(self):
-        while not self.stopped:
-            self.frame = self.camera.capture(encoding=self.encoding)
-            self.grabbed = True
+        self.frame = self.camera.capture(encoding=self.encoding)
+        self.grabbed = True
 
     def open_frame(self, header='Live Feed', x_pos=0, y_pos=0):
-        while not self.stopped:
+        while self.running:
             if self.grabbed:
                 img = self.frame.as_array.reshape(self.height, self.width)
                 cv.namedWindow(header, cv.WINDOW_NORMAL)
                 cv.resizeWindow(header, 160, 130)
                 cv.imshow(header, img)
                 cv.moveWindow(header, x_pos, y_pos)
+                self.count += 1
                 self.grabbed = False
-                if cv.waitKey(10) in (27, 113):  # pressing 'esc' or 'q' exits loop
+                if cv.waitKey(1) in (27, 113):
                     print('Quit script')
-                    self.stopped = True
+                    self.running = False
+        print("Opened frames: {}".format(self.count))
+
+    def stop_thread(self):
+        print("Quit script")
+        self.running = False
 
     def close(self):
         del self.frame
@@ -73,11 +77,22 @@ def align_up(size, align):
 
 
 def main():
-    test = 0
     print('Test: {}'.format(test))
+    get_count = 0
     cam = CameraFeed()
     cam.set_controls()
-    cam.start_threads()
+    cam.start_thread()
+    start_time = time.time()
+
+    while True:
+        cam.get_frame()
+        get_count += 1
+        if time.time() - start_time > 10:
+            cam.stop_thread()
+            print("Runtime over")
+            break
+
+    print("Retrieved frames: {}".format(get_count))
     cam.close()
 
 
